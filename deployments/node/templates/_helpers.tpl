@@ -112,15 +112,20 @@ Create the name of the service account to use
 Get the Pod security context
 */}}
 {{- define "fluidos.podSecurityContext" -}}
-runAsNonRoot: true
-runAsUser: 1000
-runAsGroup: 1000
-fsGroup: 1000
+#runAsNonRoot: true
+#runAsUser: 1000
+#runAsGroup: 1000
+#fsGroup: 1000
 {{- end -}}
 
 {{/*
 Get the Container security context
 */}}
 {{- define "fluidos.containerSecurityContext" -}}
-allowPrivilegeEscalation: false
+runAsUser: 0       # Runs the container as the root user
+runAsGroup: 0      # Runs the container as the root group
+capabilities:
+    add:
+    - NET_ADMIN      # Grants the container permission to modify network interfaces
+allowPrivilegeEscalation: true
 {{- end -}}

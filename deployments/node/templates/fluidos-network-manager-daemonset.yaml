@@ -43,12 +43,15 @@ spec:
         securityContext:
           {{- include "fluidos.containerSecurityContext" $networkManagerConfig | nindent 10 }}
         name: {{ $networkManagerConfig.name }}
-        command: ["/usr/bin/network-manager"]
+        command: ["/bin/sh", "-c"]
         args:
-          - --enable-local-discovery={{ .Values.networkManager.config.enableLocalDiscovery | toString }}
-          {{- if eq .Values.networkManager.config.enableLocalDiscovery true }}
-          - --cniInterface={{ (get .Values.networkManager.pod.annotations "k8s.v1.cni.cncf.io/networks" | split "@")._1 }}
-          {{- end }}
+          - |
+            apk add --no-cache iproute2 &&
+            /usr/bin/network-manager \
+            --enable-local-discovery={{ .Values.networkManager.config.enableLocalDiscovery | toString }} \
+            {{- if eq .Values.networkManager.config.enableLocalDiscovery true }}
+            --cniInterface={{ (get .Values.networkManager.pod.annotations "k8s.v1.cni.cncf.io/networks" | split "@")._1 }} \
+            {{- end }}
         env:
         - name: MULTICAST_ADDRESS
           value: {{ print .Values.networkManager.config.multicast.address ":" .Values.networkManager.config.multicast.port}}
