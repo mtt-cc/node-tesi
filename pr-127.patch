@@ -1,0 +1,173 @@
+From 46d9e7214afc8d977cf44d7bc8139eede88cb37a Mon Sep 17 00:00:00 2001
+From: Stephan Schwichtenberg <stephan.schwichtenberg@pi-lar.net>
+Date: Wed, 6 Nov 2024 15:25:03 +0100
+Subject: [PATCH 1/4] initial commit to add neuropil discovery to fluidos  node
+ project
+
+---
+ .../node/templates/fluidos-np-discovery.yaml  | 63 +++++++++++++++++++
+ deployments/node/values.yaml                  |  6 ++
+ 2 files changed, 69 insertions(+)
+ create mode 100644 deployments/node/templates/fluidos-np-discovery.yaml
+
+diff --git a/deployments/node/templates/fluidos-np-discovery.yaml b/deployments/node/templates/fluidos-np-discovery.yaml
+new file mode 100644
+index 0000000..036832d
+--- /dev/null
++++ b/deployments/node/templates/fluidos-np-discovery.yaml
+@@ -0,0 +1,63 @@
++{{ if Values.npDiscovery.enabled }}
++{{- $rearControllerConfig := (merge (dict "name" "rear-controller" "module" "rear-controller") .) -}}
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  labels:
++    {{- include "fluidos.labels" $rearControllerConfig | nindent 4 }}
++  name: {{ include "fluidos.prefixedName" $rearControllerConfig }}
++  namespace: {{ .Release.Namespace }}
++spec:
++  replicas: 1
++  selector:
++    matchLabels:
++      {{- include "fluidos.labels" $rearControllerConfig | nindent 6 }}
++  template:
++    metadata: 
++    {{ if .Values.rearController.pod.annotations }}
++      annotations:
++        {{- toYaml .Values.rearController.pod.annotations | nindent 8 }}
++    {{ end }}
++      labels:
++        {{- include "fluidos.labels" $rearControllerConfig | nindent 8 }}
++      {{ if .Values.rearController.pod.labels }}
++        {{ toYaml .Values.rearController.pod.labels | nindent 8 }}
++      {{ end }}
++    spec:
++      {{- if gt .Values.rearController.replicas 1.0 }}
++      affinity:
++        podAntiAffinity:
++          preferredDuringSchedulingIgnoredDuringExecution:
++          - weight: 100
++            podAffinityTerm:
++              labelSelector:
++                matchLabels:
++                  {{- include "fluidos.labels" $rearControllerConfig | nindent 18 }}
++              topologyKey: kubernetes.io/hostname
++      {{- end }}
++      securityContext:
++        {{- include "fluidos.podSecurityContext" $rearControllerConfig | nindent 8 }}
++      serviceAccountName: {{ include "fluidos.prefixedName" $rearControllerConfig }}
++      containers:
++      - image: {{ .Values.npDiscovery.imageName }}
++        imagePullPolicy: {{ .Values.pullPolicy }}
++        securityContext:
++          {{- include "fluidos.containerSecurityContext" $rearControllerConfig | nindent 10 }}
++        name: {{ .Values.npDiscovery.name }}
++        resources: {{- toYaml .Values.rearController.pod.resources | nindent 10 }}
++        env:
++          - name: NP_BOOTSTRAP_URL
++            value: {{ .Values.npDiscovery.np_bootstrap_url }}
++      {{- if (.Values.common).nodeSelector }}
++      nodeSelector:
++      {{- toYaml .Values.common.nodeSelector | nindent 8 }}
++      {{- end }}
++      {{- if ((.Values.common).tolerations) }}
++      tolerations:
++      {{- toYaml .Values.common.tolerations | nindent 8 }}
++      {{- end }}
++      {{- if ((.Values.common).affinity) }}
++      affinity:
++      {{- toYaml .Values.common.affinity | nindent 8 }}
++      {{- end }}
++{{- end }}
+diff --git a/deployments/node/values.yaml b/deployments/node/values.yaml
+index ab32e53..96c0c63 100644
+--- a/deployments/node/values.yaml
++++ b/deployments/node/values.yaml
+@@ -124,6 +124,12 @@ rearController:
+       # -- The target port used by the REAR Gateway service.
+       targetPort: 3004
+ 
++npDiscovery:
++  enabled: false
++  name: np-fluidos-discovery
++  imageName: registry.gitlab.com/pi-lar/neuropil-k8s/fluidos_discovery
++  np_bootstrap_url: '\*:udp4:demo.neuropil.io:3400'
++
+ networkManager:
+   # -- The number of Network Manager, which can be increased for active/passive high availability.
+   replicas: 1
+
+From 4c101f91addb451269c2bf3ab27275d227402ef4 Mon Sep 17 00:00:00 2001
+From: Stephan Schwichtenberg <stephan.schwichtenberg@pi-lar.net>
+Date: Thu, 21 Nov 2024 15:58:53 +0100
+Subject: [PATCH 2/4] fix helm chart syntax
+
+---
+ deployments/node/templates/fluidos-np-discovery.yaml | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/deployments/node/templates/fluidos-np-discovery.yaml b/deployments/node/templates/fluidos-np-discovery.yaml
+index 036832d..53ac832 100644
+--- a/deployments/node/templates/fluidos-np-discovery.yaml
++++ b/deployments/node/templates/fluidos-np-discovery.yaml
+@@ -1,4 +1,4 @@
+-{{ if Values.npDiscovery.enabled }}
++{{ if .Values.npDiscovery.enabled }}
+ {{- $rearControllerConfig := (merge (dict "name" "rear-controller" "module" "rear-controller") .) -}}
+ apiVersion: apps/v1
+ kind: Deployment
+@@ -47,7 +47,7 @@ spec:
+         resources: {{- toYaml .Values.rearController.pod.resources | nindent 10 }}
+         env:
+           - name: NP_BOOTSTRAP_URL
+-            value: {{ .Values.npDiscovery.np_bootstrap_url }}
++            value: {{ .Values.npDiscovery.np_bootstrap_url | quote }}
+       {{- if (.Values.common).nodeSelector }}
+       nodeSelector:
+       {{- toYaml .Values.common.nodeSelector | nindent 8 }}
+
+From 314e63ce9a1919d9568f1283509128c4dcfa2d36 Mon Sep 17 00:00:00 2001
+From: Stephan Schwichtenberg <stephan.schwichtenberg@pi-lar.net>
+Date: Thu, 21 Nov 2024 19:38:29 +0100
+Subject: [PATCH 3/4] change name of deployment
+
+---
+ deployments/node/templates/fluidos-np-discovery.yaml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/deployments/node/templates/fluidos-np-discovery.yaml b/deployments/node/templates/fluidos-np-discovery.yaml
+index 53ac832..33f7ddc 100644
+--- a/deployments/node/templates/fluidos-np-discovery.yaml
++++ b/deployments/node/templates/fluidos-np-discovery.yaml
+@@ -5,7 +5,7 @@ kind: Deployment
+ metadata:
+   labels:
+     {{- include "fluidos.labels" $rearControllerConfig | nindent 4 }}
+-  name: {{ include "fluidos.prefixedName" $rearControllerConfig }}
++  name: np-fluidos-discovery
+   namespace: {{ .Release.Namespace }}
+ spec:
+   replicas: 1
+
+From 789d29cfb1ca68ae7ee273c1a88ed2fb06e3505f Mon Sep 17 00:00:00 2001
+From: Stephan Schwichtenberg <stephan.schwichtenberg@pi-lar.net>
+Date: Thu, 21 Nov 2024 19:38:58 +0100
+Subject: [PATCH 4/4] remove backslash
+
+---
+ deployments/node/values.yaml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/deployments/node/values.yaml b/deployments/node/values.yaml
+index 96c0c63..24e0f8c 100644
+--- a/deployments/node/values.yaml
++++ b/deployments/node/values.yaml
+@@ -128,7 +128,7 @@ npDiscovery:
+   enabled: false
+   name: np-fluidos-discovery
+   imageName: registry.gitlab.com/pi-lar/neuropil-k8s/fluidos_discovery
+-  np_bootstrap_url: '\*:udp4:demo.neuropil.io:3400'
++  np_bootstrap_url: '*:udp4:demo.neuropil.io:3400'
+ 
+ networkManager:
+   # -- The number of Network Manager, which can be increased for active/passive high availability.
