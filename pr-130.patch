@@ -1,0 +1,194 @@
+From a39080ecedb5bee8d41b39e550d6ae731810ea07 Mon Sep 17 00:00:00 2001
+From: Stephan Schwichtenberg <stephan.schwichtenberg@pi-lar.net>
+Date: Wed, 6 Nov 2024 15:25:03 +0100
+Subject: [PATCH] initial commit to add neuropil discovery to fluidos node
+ project also adds np discovery roles, following file naming layout
+
+---
+ .../files/node-np-discovery-ClusterRole.yaml  | 47 ++++++++++++++
+ .../fluidos-np-discovery-deployment.yaml      | 62 +++++++++++++++++++
+ .../templates/fluidos-np-discovery-rbac.yaml  | 34 ++++++++++
+ deployments/node/values.yaml                  |  6 ++
+ 4 files changed, 149 insertions(+)
+ create mode 100644 deployments/node/files/node-np-discovery-ClusterRole.yaml
+ create mode 100644 deployments/node/templates/fluidos-np-discovery-deployment.yaml
+ create mode 100644 deployments/node/templates/fluidos-np-discovery-rbac.yaml
+
+diff --git a/deployments/node/files/node-np-discovery-ClusterRole.yaml b/deployments/node/files/node-np-discovery-ClusterRole.yaml
+new file mode 100644
+index 0000000..e9ddc0d
+--- /dev/null
++++ b/deployments/node/files/node-np-discovery-ClusterRole.yaml
+@@ -0,0 +1,47 @@
++rules:
++- apiGroups:
++  - ""
++  resources:
++  - '*'
++  verbs:
++  - get
++  - list
++  - watch
++- apiGroups:
++  - ""
++  resources:
++  - configmaps
++  verbs:
++  - get
++  - list
++  - watch
++- apiGroups:
++  - network.fluidos.eu
++  resources:
++  - knownclusters
++  verbs:
++  - create
++  - get
++  - patch
++  - list
++  - watch
++- apiGroups:
++  - nodecore.fluidos.eu
++  resources:
++  - flavors
++  verbs:
++  - create
++  - delete
++  - get
++  - list
++  - patch
++  - update
++  - watch
++- apiGroups:
++  - nodecore.fluidos.eu
++  resources:
++  - flavors/status
++  verbs:
++  - get
++  - patch
++  - update
+diff --git a/deployments/node/templates/fluidos-np-discovery-deployment.yaml b/deployments/node/templates/fluidos-np-discovery-deployment.yaml
+new file mode 100644
+index 0000000..e65d79a
+--- /dev/null
++++ b/deployments/node/templates/fluidos-np-discovery-deployment.yaml
+@@ -0,0 +1,62 @@
++{{ if .Values.npDiscovery.enabled }}
++{{- $npDiscoveryConfig := (merge (dict "name" "np-discovery" "module" "np-discovery") .) -}}
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  labels:
++    {{- include "fluidos.labels" $npDiscoveryConfig | nindent 4 }}
++  name: np-fluidos-discovery
++  namespace: {{ .Release.Namespace }}
++spec:
++  replicas: 1
++  selector:
++    matchLabels:
++      {{- include "fluidos.labels" $npDiscoveryConfig | nindent 6 }}
++  template:
++    metadata:
++    {{ if .Values.rearController.pod.annotations }}
++      annotations:
++        {{- toYaml .Values.rearController.pod.annotations | nindent 8 }}
++    {{ end }}
++      labels:
++        {{- include "fluidos.labels" $npDiscoveryConfig | nindent 8 }}
++      {{ if .Values.rearController.pod.labels }}
++        {{ toYaml .Values.rearController.pod.labels | nindent 8 }}
++      {{ end }}
++    spec:
++      {{- if gt .Values.rearController.replicas 1.0 }}
++      affinity:
++        podAntiAffinity:
++          preferredDuringSchedulingIgnoredDuringExecution:
++          - weight: 100
++            podAffinityTerm:
++              labelSelector:
++                matchLabels:
++                  {{- include "fluidos.labels" $npDiscoveryConfig | nindent 18 }}
++              topologyKey: kubernetes.io/hostname
++      {{- end }}
++      securityContext:
++        {{- include "fluidos.podSecurityContext" $npDiscoveryConfig | nindent 8 }}
++      serviceAccountName: {{ include "fluidos.prefixedName" $npDiscoveryConfig }}
++      containers:
++      - image: {{ .Values.npDiscovery.imageName }}
++        securityContext:
++          {{- include "fluidos.containerSecurityContext" $npDiscoveryConfig | nindent 10 }}
++        name: {{ .Values.npDiscovery.name }}
++        resources: {{- toYaml .Values.rearController.pod.resources | nindent 10 }}
++        env:
++          - name: NP_BOOTSTRAP_URL
++            value: {{ .Values.npDiscovery.np_bootstrap_url | quote }}
++      {{- if (.Values.common).nodeSelector }}
++      nodeSelector:
++      {{- toYaml .Values.common.nodeSelector | nindent 8 }}
++      {{- end }}
++      {{- if ((.Values.common).tolerations) }}
++      tolerations:
++      {{- toYaml .Values.common.tolerations | nindent 8 }}
++      {{- end }}
++      {{- if ((.Values.common).affinity) }}
++      affinity:
++      {{- toYaml .Values.common.affinity | nindent 8 }}
++      {{- end }}
++{{- end }}
+diff --git a/deployments/node/templates/fluidos-np-discovery-rbac.yaml b/deployments/node/templates/fluidos-np-discovery-rbac.yaml
+new file mode 100644
+index 0000000..dfddb49
+--- /dev/null
++++ b/deployments/node/templates/fluidos-np-discovery-rbac.yaml
+@@ -0,0 +1,34 @@
++{{ if .Values.npDiscovery.enabled }}
++{{- $npDiscoveryConfig := (merge (dict "name" "np-discovery" "module" "np-discovery") .) -}}
++
++apiVersion: v1
++kind: ServiceAccount
++metadata:
++  name: {{ include "fluidos.prefixedName" $npDiscoveryConfig }}
++  labels:
++    {{- include "fluidos.labels" $npDiscoveryConfig | nindent 4 }}
++---
++apiVersion: rbac.authorization.k8s.io/v1
++kind: ClusterRoleBinding
++metadata:
++  name: {{ include "fluidos.prefixedName" $npDiscoveryConfig }}
++  labels:
++    {{- include "fluidos.labels" $npDiscoveryConfig | nindent 4 }}
++subjects:
++  - kind: ServiceAccount
++    name: {{ include "fluidos.prefixedName" $npDiscoveryConfig }}
++    namespace: {{ .Release.Namespace }}
++roleRef:
++  apiGroup: rbac.authorization.k8s.io
++  kind: ClusterRole
++  name: {{ include "fluidos.prefixedName" $npDiscoveryConfig }}
++---
++apiVersion: rbac.authorization.k8s.io/v1
++kind: ClusterRole
++metadata:
++  name: {{ include "fluidos.prefixedName" $npDiscoveryConfig }}
++  labels:
++    {{- include "fluidos.labels" $npDiscoveryConfig | nindent 4 }}
++{{ .Files.Get (include "fluidos.cluster-role-filename" (dict "prefix" ( include "fluidos.prefixedName" $npDiscoveryConfig )))}}
++
++{{- end }}
+diff --git a/deployments/node/values.yaml b/deployments/node/values.yaml
+index 6fac405..e22f810 100644
+--- a/deployments/node/values.yaml
++++ b/deployments/node/values.yaml
+@@ -124,6 +124,12 @@ rearController:
+       # -- The target port used by the REAR Gateway service.
+       targetPort: 3004
+
++npDiscovery:
++  enabled: false
++  name: np-fluidos-discovery
++  imageName: registry.gitlab.com/pi-lar/neuropil-k8s/fluidos_discovery
++  np_bootstrap_url: '*:udp4:demo.neuropil.io:3400'
++
+ networkManager:
+   # -- The number of Network Manager, which can be increased for active/passive high availability.
+   replicas: 1
