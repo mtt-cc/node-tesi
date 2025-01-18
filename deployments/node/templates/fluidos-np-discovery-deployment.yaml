@@ -39,14 +39,27 @@ spec:
         {{- include "fluidos.podSecurityContext" $npDiscoveryConfig | nindent 8 }}
       serviceAccountName: {{ include "fluidos.prefixedName" $npDiscoveryConfig }}
       containers:
-      - image: {{ .Values.npDiscovery.imageName }}
+      - name: {{ .Values.npDiscovery.name }}
+        image: {{ .Values.npDiscovery.imageName }}
         securityContext:
           {{- include "fluidos.containerSecurityContext" $npDiscoveryConfig | nindent 10 }}
-        name: {{ .Values.npDiscovery.name }}
-        resources: {{- toYaml .Values.rearController.pod.resources | nindent 10 }}
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq && \
+            apt-get install -y -qq --no-install-recommends iproute2 && \
+            apt-get clean && \
+            rm -rf /var/lib/apt/lists/* && \
+            echo "Dependencies installed, verifying..." && \
+            ip -V && \
+            echo "Starting application..."
+            # Your application start command here
+            /usr/bin/python3 /app/k8s_main.py
         env:
           - name: NP_BOOTSTRAP_URL
             value: {{ .Values.npDiscovery.np_bootstrap_url | quote }}
+
       {{- if (.Values.common).nodeSelector }}
       nodeSelector:
       {{- toYaml .Values.common.nodeSelector | nindent 8 }}
